@@ -1,4 +1,4 @@
-## Generate list of AD computer objects and save . Exclude disabled (Splunk Supporting Add-on for Active Directory required) 
+## Generate list of AD computer objects and save to lookup file ad_computers. Exclude disabled objekts. (Splunk Supporting Add-on for Active Directory required) 
 | ldapsearch domain=default search="(&(objectCategory=computer)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))" attrs="distinguishedName, dNSHostName, managedBy, sAMAccountName, operatingSystem" 
 | rex max_match=5 field=distinguishedName "OU=(?<dn_parsed>[^,]+)" 
 | eval nt_host=replace(sAMAccountName, "\$", ""), dns='dNSHostName', owner='managedBy', bunit_split=split(dn, ","), category=lower(replace(mvjoin(dn_parsed, "|"), " ", "_")), priority=case(match(category, "domain_controller|exchange|citrix"), "critical", match(category, "server|disabled"), "high", match(category, "workstation|desktop|mobile|laptop"), "medium", category IN ("staging", "test"), "low", 1==1, "unknown"), is_expected=if(priority IN ("critical", "high"), "true", "false") 
