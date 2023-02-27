@@ -1,0 +1,37 @@
+## get hostname from IP using Checkpoint Logs. Useful for defender for endpoint. 
+# Example "Threat Activity Detected" rule. Supplemmented by the join comand, which search info in CheckPoint FW logs and get Computername using SRC IP. 
+# Change contoso.com to your domain and checkpoint_index to your checkpoint index.
+
+| from datamodel:"Threat_Intelligence"."Threat_Activity" 
+| dedup threat_match_field,threat_match_value 
+| `get_event_id` 
+| table _raw,event_id,source,src,dest,src_user,user,threat*,weight 
+| rename weight as record_weight 
+| `per_panel_filter("ppf_threat_activity","threat_match_field,threat_match_value")` 
+| `get_threat_attribution(threat_key)` 
+| rename source_* as threat_source_*,description as threat_description 
+| fields - *time 
+| eval risk_score=case(isnum(record_weight), record_weight, isnum(weight) AND weight=1, 60, isnum(weight), weight, 1=1, null()),risk_system=if(threat_match_field IN("query", "answer"),threat_match_value,null()),risk_hash=if(threat_match_field IN("file_hash"),threat_match_value,null()),risk_network=if(threat_match_field IN("http_user_agent", "url") OR threat_match_field LIKE "certificate_%",threat_match_value,null()),risk_host=if(threat_match_field IN("file_name", "process", "service") OR threat_match_field LIKE "registry_%",threat_match_value,null()),risk_other=if(threat_match_field IN("query", "answer", "src", "dest", "src_user", "user", "file_hash", "http_user_agent", "url", "file_name", "process", "service") OR threat_match_field LIKE "certificate_%" OR threat_match_field LIKE "registry_%",threat_match_value,null())
+| join src type=left [ search
+  index="checkpoint_index" product=Firewall 
+  | rex field=src_machine_name mode=sed "s/([a-zA-Z0-9-.]+)@contoso\.com/\1.contoso.com/"  
+  | table src, src_machine_name ]
+
+# Example 2 "Threat Activity Detected" rule. Supplemmented by the join comand, which search addtitional info in Internal Splunk logs and get Computername using SRC IP. 
+# Internal logs contain information about Universal Forwarder clients network information. 
+# IP and hostanme. And we can use this information to get appropriate hostname from source ip.
+
+| from datamodel:"Threat_Intelligence"."Threat_Activity" 
+| dedup threat_match_field,threat_match_value 
+| `get_event_id` 
+| table _raw,event_id,source,src,dest,src_user,user,threat*,weight 
+| rename weight as record_weight 
+| `per_panel_filter("ppf_threat_activity","threat_match_field,threat_match_value")` 
+| `get_threat_attribution(threat_key)` 
+| rename source_* as threat_source_*,description as threat_description 
+| fields - *time 
+| eval risk_score=case(isnum(record_weight), record_weight, isnum(weight) AND weight=1, 60, isnum(weight), weight, 1=1, null()),risk_system=if(threat_match_field IN("query", "answer"),threat_match_value,null()),risk_hash=if(threat_match_field IN("file_hash"),threat_match_value,null()),risk_network=if(threat_match_field IN("http_user_agent", "url") OR threat_match_field LIKE "certificate_%",threat_match_value,null()),risk_host=if(threat_match_field IN("file_name", "process", "service") OR threat_match_field LIKE "registry_%",threat_match_value,null()),risk_other=if(threat_match_field IN("query", "answer", "src", "dest", "src_user", "user", "file_hash", "http_user_agent", "url", "file_name", "process", "service") OR threat_match_field LIKE "certificate_%" OR threat_match_field LIKE "registry_%",threat_match_value,null())
+| join src type=left [ search 
+  index=_internal  sourcetype=splunkd_access phonehome 
+  | rex "\/services\/broker\/phonehome\/connection_(?<ip>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})_\d+_(?<hostname>[^_]+)" 
+  | rename ip as src |stats count by hostname src |fields hostname src]
