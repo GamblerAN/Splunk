@@ -1,0 +1,61 @@
+## Generate list of AD computer objects and save . Exclude disabled (Splunk Supporting Add-on for Active Directory required) 
+| ldapsearch domain=default search="(&(objectCategory=computer)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))" attrs="distinguishedName, dNSHostName, managedBy, sAMAccountName, operatingSystem" 
+| rex max_match=5 field=distinguishedName "OU=(?<dn_parsed>[^,]+)" 
+| eval nt_host=replace(sAMAccountName, "\$", ""), dns='dNSHostName', owner='managedBy', bunit_split=split(dn, ","), category=lower(replace(mvjoin(dn_parsed, "|"), " ", "_")), priority=case(match(category, "domain_controller|exchange|citrix"), "critical", match(category, "server|disabled"), "high", match(category, "workstation|desktop|mobile|laptop"), "medium", category IN ("staging", "test"), "low", 1==1, "unknown"), is_expected=if(priority IN ("critical", "high"), "true", "false") 
+| rex field=bunit_split "(OU|CN)=(?<bunit>.+)" 
+| table ip, mac, nt_host, dns, owner, priority, lat, long, city, country, bunit, category, pci_domain, is_expected, should_timesync, should_update, requires_av, operatingSystem 
+| outputlookup ad_computers
+| ldapsearch domain=default search="(&(objectCategory=computer)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))" attrs="distinguishedName, dNSHostName, managedBy, sAMAccountName, operatingSystem" 
+| rex max_match=5 field=distinguishedName "OU=(?<dn_parsed>[^,]+)" 
+| eval nt_host=replace(sAMAccountName, "\$", ""), dns='dNSHostName', owner='managedBy', bunit_split=split(dn, ","), category=lower(replace(mvjoin(dn_parsed, "|"), " ", "_")), priority=case(match(category, "domain_controller|exchange|citrix"), "critical", match(category, "server|disabled"), "high", match(category, "workstation|desktop|mobile|laptop"), "medium", category IN ("staging", "test"), "low", 1==1, "unknown"), is_expected=if(priority IN ("critical", "high"), "true", "false") 
+| rex field=bunit_split "(OU|CN)=(?<bunit>.+)" 
+| table ip, mac, nt_host, dns, owner, priority, lat, long, city, country, bunit, category, pci_domain, is_expected, should_timesync, should_update, requires_av, operatingSystem 
+| outputlookup ad_computers
+
+## Find AD Windows WKS not sending info to splunk.(Splunk Supporting Add-on for Active Directory required) 
+| inputlookup ad_computers 
+| fields dns,nt_host, category,is_expected, operatingSystem 
+| eval dns=lower(dns) 
+| eval nt_host=lower(nt_host) 
+| search NOT (category="domain_controllers" OR category="*servers" OR operatingSystem=*Server*) AND operatingSystem="Windows*" 
+| join nt_host type=outer [| tstats count WHERE index=_internal sourcetype=splunkd BY host | eval host=lower(host) | rename host as nt_host] 
+| join dns type=outer [| tstats count WHERE index=_internal sourcetype=splunkd BY host | eval host=lower(host) | rename host as dns] 
+| search NOT count=*
+| table nt_host, operatingSystem 
+| sort nt_host
+
+## Find AD Windows Servers not sending info to splunk.(Splunk Supporting Add-on for Active Directory required) 
+| inputlookup ad_computers
+| fields dns,nt_host, category,is_expected, operatingSystem
+| eval dns=lower(dns)
+| eval nt_host=lower(nt_host)
+| search (category="domain_controllers" OR category="*servers") AND operatingSystem="Windows*"
+| join nt_host type=outer
+[| tstats count WHERE index=_internal sourcetype=splunkd BY host
+| eval host=lower(host)
+| rename host as nt_host]
+| join dns type=outer
+[| tstats count WHERE index=_internal sourcetype=splunkd BY host
+| eval host=lower(host)
+| rename host as dns]
+| search NOT count=*
+| table nt_host, operatingSystem 
+| sort nt_host
+
+## Find AD Linux(Not Windows) Servers not sending info to splunk.(Splunk Supporting Add-on for Active Directory required) 
+| inputlookup ad_computers
+| fields dns,nt_host, category,is_expected, operatingSystem
+| eval dns=lower(dns)
+| eval nt_host=lower(nt_host)
+| search NOT operatingSystem="windows*"
+| join nt_host type=outer
+[| tstats count WHERE index=_internal sourcetype=splunkd BY host
+| eval host=lower(host)
+| rename host as nt_host]
+| join dns type=outer
+[| tstats count WHERE index=_internal sourcetype=splunkd BY host
+| eval host=lower(host)
+| rename host as dns]
+| search NOT count=*
+| table nt_host, operatingSystem
+| sort nt_host
