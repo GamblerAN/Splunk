@@ -1,0 +1,25 @@
+### Useful Searches where MS Defender Advanced Hunting Add-On is used. https://splunkbase.splunk.com/app/6456
+
+## Get MS Exchange online protection logs to Splunk. Only Blocked. Save in its own Index 
+# sourcetype="m365:defender:incident:advanced_hunting" Ensures the correct log parsing and field extraction. 
+|advhunt query="
+let info_mintime = ago(1h);
+let info_maxtime = now(); 
+EmailEvents 
+|where Timestamp > info_mintime and Timestamp <= info_maxtime
+|where DeliveryAction contains 'Blocked'"
+| spath input=_raw
+| collect index=ms_eop_blocked sourcetype="m365:defender:incident:advanced_hunting"
+
+
+## List Windows Server vulnerabilities. Split by Serverity level. Add Machine group Field.
+| advhunt query="DeviceTvmSoftwareVulnerabilities 
+| where OSPlatform contains 'WindowsServer'"
+| spath input=_raw |dedup DeviceId CveId 
+| chart count by DeviceId,VulnerabilitySeverityLevel | sort -Critical -High -Medium -Low
+| join DeviceId type=outer 
+[| advhunt query="DeviceTvmSoftwareVulnerabilities 
+| where OSPlatform contains 'WindowsServer'
+| join kind=leftouter ( DeviceInfo | distinct DeviceId, MachineGroup) on DeviceId
+| project-reorder MachineGroup"  | spath input=_raw |dedup DeviceId]
+| fields DeviceName, Critical, High, Medium, Low, MachineGroup
