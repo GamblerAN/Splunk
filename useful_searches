@@ -1,0 +1,2 @@
+## Find host host not sending auth.log
+index=linux host="ip-10-0-*" NOT [search index=linux host="ip-10-0-*" source="/var/log/auth.log" | stats count by host | table host]| stats count by host |table host
